@@ -1,5 +1,7 @@
 #include <stdarg.h>
 #include <time.h>
+#include <errno.h>
+#include <string.h>
 #include "demultiplex.h"
 
 void print_log(char *format, ...)
@@ -52,4 +54,30 @@ int8_t *seq_to_nt(char *seq, int len, int flag)
   for(i = 0; i < len; i++)  ret[i] = nt_table[(int8_t)seq[i]];
 
   return ret;
+}
+
+void bc_flush(opt_t *opt, int idx)
+{
+  bc_t *bc = opt->bc;
+  if (!bc || idx < 0 || idx >= bc->total_files) return;
+  if (bc->offset[idx] == 0) return;
+
+  bc->buffer[idx][bc->offset[idx]] = '\0';
+  if (bc->compressed) {
+    int written = gzwrite(bc->gptr[idx], bc->buffer[idx], bc->offset[idx]);
+    if (written != bc->offset[idx]) {
+      int errnum = 0;
+      const char *msg = gzerror(bc->gptr[idx], &errnum);
+      if (errnum == Z_ERRNO) msg = strerror(errno);
+      print_log("Failed to write compressed output: %s", msg ? msg : "unknown error");
+      exit(1);
+    }
+  } else {
+    size_t written = fwrite(bc->buffer[idx], 1, bc->offset[idx], bc->ptr[idx]);
+    if (written != (size_t)bc->offset[idx]) {
+      print_log("Failed to write output file: %s", strerror(errno));
+      exit(1);
+    }
+  }
+  bc->offset[idx] = 0;
 }

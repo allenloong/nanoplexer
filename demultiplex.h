@@ -17,21 +17,24 @@ KHASH_MAP_INIT_STR(dual, int)
 #define BUFSIZE 110000000U
 #define WRITESIZE 100000000U
 
-typedef struct 
+typedef struct
 {
   char **name;
   int8_t **nt, **nt_rc, *len;
   int idx, capacity;
 
   FILE **ptr;
+  gzFile *gptr;
   char **buffer;
   int32_t *offset;
   int file_num;
+  int total_files;
+  int compressed;
 
   khash_t(dual) *h;
 } bc_t;
 
-typedef struct 
+typedef struct
 {
   char *fb, *path, *dual;
 
@@ -42,6 +45,8 @@ typedef struct
   int open, ext;
   int8_t mat[25];
   int score, flag;
+  int compress;
+  int output_unclassified;
 
   FILE *log;
   kseq_t *ks;
@@ -61,5 +66,7 @@ void rc_seq(char *seq, int len);
 int8_t *seq_to_nt(char *seq, int len, int flag);
 
 void demultiplex_data(opt_t *opt);
+
+void bc_flush(opt_t *opt, int idx);
 
 #endif

@@ -1,6 +1,8 @@
 #include "demultiplex.h"
 #include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <string.h>
 
 void opt_init(opt_t *opt)
 {
@@ -14,6 +16,9 @@ void opt_init(opt_t *opt)
   opt->n_threads = 3;
   opt->chunk_size = 400000000;
 
+  opt->compress = 0;
+  opt->output_unclassified = 1;
+
   opt->bc = (bc_t *)malloc(sizeof(bc_t));
   memset(opt->bc, 0, sizeof(bc_t));
 }
@@ -22,9 +27,10 @@ void opt_set_mat(int match, int mismatch, int8_t mat[25])
 {
   int i, j, k;
   for (i = k = 0; i < 4; ++i) {
-    for (j = 0; j < 4; ++j)
+    for (j = 0; j < 4; ++j) {
       mat[k++] = i == j? match : -mismatch;
-      mat[k++] = 0;
+    }
+    mat[k++] = 0;
   }
   for (j = 0; j < 5; ++j) mat[k++] = 0;
 }
@@ -97,19 +103,57 @@ void opt_set_output(opt_t *opt, char **name)
   int i; char tmp[1024];
 
   bc_t *bc = opt->bc;
-  bc->ptr = (FILE **)malloc(sizeof(FILE *) * (bc->file_num + 1));
-  bc->buffer = (char **)malloc(sizeof(char *) * (bc->file_num + 1));
-  bc->offset = (int32_t *)calloc((bc->file_num + 1), sizeof(int32_t));
+  bc->compressed = opt->compress;
+  bc->total_files = bc->file_num + (opt->output_unclassified ? 1 : 0);
+  if (bc->compressed) {
+    bc->gptr = (gzFile *)malloc(sizeof(gzFile) * bc->total_files);
+    bc->ptr = NULL;
+  } else {
+    bc->ptr = (FILE **)malloc(sizeof(FILE *) * bc->total_files);
+    bc->gptr = NULL;
+  }
+  bc->buffer = (char **)malloc(sizeof(char *) * bc->total_files);
+  bc->offset = (int32_t *)calloc(bc->total_files, sizeof(int32_t));
+
+  const char *ext = opt->mode ? ".fasta" : ".fastq";
+  const char *suffix = opt->compress ? ".gz" : "";
+
   for(i = 0; i < bc->file_num; i++) {
-    if (opt->mode)  sprintf(tmp, "%s/%s.fasta", opt->path, name[i]);
-    else  sprintf(tmp, "%s/%s.fastq", opt->path, name[i]);
-    bc->ptr[i] = fopen(tmp, "w");
+    snprintf(tmp, sizeof(tmp), "%s/%s%s%s", opt->path, name[i], ext, suffix);
+    if (bc->compressed) {
+      bc->gptr[i] = gzopen(tmp, "wb");
+      if (!bc->gptr[i]) {
+        print_log("Failed to open output file %s: %s", tmp, strerror(errno));
+        exit(1);
+      }
+    } else {
+      bc->ptr[i] = fopen(tmp, "w");
+      if (!bc->ptr[i]) {
+        print_log("Failed to open output file %s: %s", tmp, strerror(errno));
+        exit(1);
+      }
+    }
     bc->buffer[i] = (char *)malloc(sizeof(char) * BUFSIZE);
   }
-  if (opt->mode)  sprintf(tmp, "%s/unclassified.fasta", opt->path);
-  else  sprintf(tmp, "%s/unclassified.fastq", opt->path);
-  bc->ptr[bc->file_num] = fopen(tmp, "w");
-  bc->buffer[bc->file_num] = (char *)malloc(sizeof(char) * BUFSIZE);
+
+  if (opt->output_unclassified) {
+    snprintf(tmp, sizeof(tmp), "%s/unclassified%s%s", opt->path, ext, suffix);
+    int idx = bc->file_num;
+    if (bc->compressed) {
+      bc->gptr[idx] = gzopen(tmp, "wb");
+      if (!bc->gptr[idx]) {
+        print_log("Failed to open output file %s: %s", tmp, strerror(errno));
+        exit(1);
+      }
+    } else {
+      bc->ptr[idx] = fopen(tmp, "w");
+      if (!bc->ptr[idx]) {
+        print_log("Failed to open output file %s: %s", tmp, strerror(errno));
+        exit(1);
+      }
+    }
+    bc->buffer[idx] = (char *)malloc(sizeof(char) * BUFSIZE);
+  }
 }
 
 void opt_set_bc(opt_t *opt)
@@ -152,12 +196,10 @@ void opt_free(opt_t *opt)
   int i;
   bc_t *bc = opt->bc;
 
-  for(i = 0; i <= bc->file_num; i++) {
-    if (bc->offset[i]) {
-      bc->buffer[i][bc->offset[i]] = '\0';
-      fprintf(bc->ptr[i], "%s", bc->buffer[i]);
-    }
-    fclose(bc->ptr[i]);
+  for(i = 0; i < bc->total_files; i++) {
+    bc_flush(opt, i);
+    if (bc->compressed) gzclose(bc->gptr[i]);
+    else fclose(bc->ptr[i]);
     free(bc->buffer[i]);
   }
   for(i = 0; i < bc->idx; i++) {
@@ -171,7 +213,9 @@ void opt_free(opt_t *opt)
     kh_destroy(dual, bc->h);
     free(opt->dual);
   }
-  free(bc->ptr); free(bc->buffer); free(bc->offset);
+  if (bc->ptr) free(bc->ptr);
+  if (bc->gptr) free(bc->gptr);
+  free(bc->buffer); free(bc->offset);
   free(bc->name); free(bc->len);
   free(bc->nt); free(bc->nt_rc);
   free(bc);

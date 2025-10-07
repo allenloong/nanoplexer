@@ -36,6 +36,8 @@ static int usage()
   fprintf(stderr, " -e  INT     gap extension score [default 1]\n");
   fprintf(stderr, " -s  INT     minimal alignment score for demultiplexing\n");
   fprintf(stderr, " -i          ignore parameter estimation\n");
+  fprintf(stderr, " -z          compress output files (gzip)\n");
+  fprintf(stderr, " -U          do not write unclassified output file\n");
   fprintf(stderr, " -h          help information\n");
   fprintf(stderr, " -v          show version number\n\n");
   fprintf(stderr, "-b -p must be specified.\n\n");
@@ -46,7 +48,7 @@ static int usage()
 
 int main(int argc, char *argv[])
 {
-  const char *optstring = "b:d:p:l:M:B:t:L:m:x:o:e:s:ihv";
+  const char *optstring = "b:d:p:l:M:B:t:L:m:x:o:e:s:ihvzU";
   static struct option long_options[] = {
     {"barcode", required_argument, 0, 'b'},
     {"dual", optional_argument, 0, 'd'},
@@ -62,6 +64,8 @@ int main(int argc, char *argv[])
     {"extension", optional_argument, 0, 'e'},
     {"score", optional_argument, 0, 's'},
     {"ignore", no_argument, 0, 'i'},
+    {"compress", no_argument, 0, 'z'},
+    {"no-unclassified", no_argument, 0, 'U'},
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
     {0, 0, 0, 0}
@@ -89,6 +93,8 @@ int main(int argc, char *argv[])
       case 'e': opt.ext = atoi(optarg); break;
       case 's': opt.score = atoi(optarg); break;
       case 'i': opt.flag = 1; break;
+      case 'z': opt.compress = 1; break;
+      case 'U': opt.output_unclassified = 0; break;
       case 'h': return usage();
       case 'v': fprintf(stdout, "Version: %s\n", VERSION); return 0;
       default:  return usage();

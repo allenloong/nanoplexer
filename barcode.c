@@ -22,6 +22,7 @@ bseq1_t *bseq_read(kseq_t *ks, int chunk_size, int *n_)
       seqs = realloc(seqs, m * sizeof(bseq1_t));
     }
     s = &seqs[n];
+    memset(s, 0, sizeof(bseq1_t));
     s->name = strdup(ks->name.s); s->seq = strdup(ks->seq.s);
     s->l_name = ks->name.l; s->l_seq = ks->seq.l;
     if (ks->qual.s)  s->qual = strdup(ks->qual.s), s->l_qual = ks->qual.l;
@@ -63,7 +64,7 @@ void aln_core(char *seq, opt_t *opt, int *idx, int *strand, int *score)
 
 void aln_barcode(opt_t *opt, bseq1_t *seq)
 {
-  seq->idx = opt->bc->file_num;
+  seq->idx = opt->output_unclassified ? opt->bc->file_num : -1;
   if (seq->l_seq <= opt->LEN) return;
 
   char *front = (char *)calloc(opt->LEN + 1, sizeof(char));
@@ -140,18 +141,20 @@ static void *worker_pipeline(void *shared, int step, void *_data)
         bc->name[s->idx2], "+-"[s->strand2], s->score2);
       }
 
-      if (opt->mode) {
-        sprintf(bc->buffer[s->idx] + bc->offset[s->idx], ">%s\n%s\n", s->name, s->seq);
-        bc->offset[s->idx] += (s->l_name + s->l_seq + 3);
-      } else {
-        sprintf(bc->buffer[s->idx] + bc->offset[s->idx], "@%s %s\n%s\n+\n%s\n", \
-        s->name, s->comment, s->seq, s->qual);
-        bc->offset[s->idx] += (s->l_name + s->l_seq + s->l_qual + s->l_comment + 7);
-      }
-      if (bc->offset[s->idx] > WRITESIZE) {
-        bc->buffer[s->idx][bc->offset[s->idx]] = '\0';
-        fprintf(bc->ptr[s->idx], "%s", bc->buffer[s->idx]);
-        bc->offset[s->idx] = 0U;
+      if (s->idx >= 0 && s->idx < bc->total_files) {
+        if (opt->mode) {
+          sprintf(bc->buffer[s->idx] + bc->offset[s->idx], ">%s\n%s\n", s->name, s->seq);
+          bc->offset[s->idx] += (s->l_name + s->l_seq + 3);
+        } else {
+          const char *comment = s->comment ? s->comment : "";
+          const char *qual = s->qual ? s->qual : "";
+          int l_comment = s->comment ? s->l_comment : 0;
+          int l_qual = s->qual ? s->l_qual : 0;
+          sprintf(bc->buffer[s->idx] + bc->offset[s->idx], "@%s %s\n%s\n+\n%s\n", \
+          s->name, comment, s->seq, qual);
+          bc->offset[s->idx] += (s->l_name + s->l_seq + l_qual + l_comment + 7);
+        }
+        if (bc->offset[s->idx] > WRITESIZE) bc_flush(opt, s->idx);
       }
       free(s->name); free(s->seq);
       if (s->comment) free(s->comment);

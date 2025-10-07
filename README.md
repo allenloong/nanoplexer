@@ -30,6 +30,14 @@ conda install -c bioconda nanoplexer
 ```
 ./nanoplexer -b barcode.fa -p output_path -l log input.fastq
 ```
+- demultiplex data and write gzipped outputs
+```
+./nanoplexer -b barcode.fa -p output_path -z input.fastq
+```
+- demultiplex data without generating `unclassified.fastq`
+```
+./nanoplexer -b barcode.fa -p output_path -U input.fastq
+```
 - demultiplex data from stdin stream
 ```
 cat sequence_id*.fastq | ./nanoplexer -b barcode.fa -p output_path -
